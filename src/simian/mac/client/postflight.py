@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,7 +69,8 @@ def RunPostflight(runtype):
     sys.exit(0)
 
   url = flight_common.GetServerURL()
-  client = mac_client.SimianAuthClient(hostname=url)
+  client = mac_client.SimianAuthClient(
+      flight_common.GetClientIdentifier('auto')['uuid'], hostname=url)
   client.SetAuthToken(flight_common.GetAuth1Token())
 
   # read SecureConfig.plist.

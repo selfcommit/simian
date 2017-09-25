@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,10 +19,7 @@ import mock
 import stubout
 
 from google.appengine.api import users
-from google.appengine.ext import testbed
 
-from django.conf import settings
-settings.configure()
 from google.apputils import app
 from google.apputils import basetest
 
@@ -35,31 +32,16 @@ from tests.simian.mac.common import test
 
 
 @mock.patch.object(xsrf, 'XsrfTokenValidate', return_value=True)
-class ManifestModificationsModuleTest(basetest.TestCase):
+class ManifestModificationsModuleTest(test.AppengineTest):
 
   def setUp(self):
     super(ManifestModificationsModuleTest, self).setUp()
-    self.testbed = testbed.Testbed()
-
-    self.testbed.activate()
-    self.testbed.setup_env(
-        overwrite=True,
-        USER_EMAIL='user@example.com',
-        USER_ID='123',
-        USER_IS_ADMIN='0',
-        DEFAULT_VERSION_HOSTNAME='example.appspot.com')
-
-    self.testbed.init_all_stubs()
 
     models.OwnerManifestModification(
         owner='zaspire', enabled=False, install_types=['managed_installs'],
         value='fooinstallname', manifests=['unstable', 'testing'],
         target='target', key_name='1234', user=users.User('user@example.com'),
         ).put()
-
-  def tearDown(self):
-    super(ManifestModificationsModuleTest, self).tearDown()
-    self.testbed.deactivate()
 
   @mock.patch.object(auth, 'IsGroupMember', return_value=False)
   @mock.patch.object(auth, 'IsAdminUser', return_value=True)

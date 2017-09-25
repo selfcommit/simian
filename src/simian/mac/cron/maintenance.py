@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,12 +21,18 @@ Classes:
 """
 
 import datetime
-import time
+import logging
+import os
+import uuid
+
 import webapp2
 
 from google.appengine.ext import blobstore
+from google.appengine.ext import deferred
 
+from simian.mac.common import datastore_locks
 from simian import settings
+from simian.auth import base as auth_base
 from simian.auth import gaeserver
 from simian.mac import common
 from simian.mac import models
@@ -37,22 +43,51 @@ from simian.mac.common import mail
 class AuthSessionCleanup(webapp2.RequestHandler):
   """Class to invoke auth session cleanup routines when called."""
 
-  def get(self):
-    """Handle GET"""
+  @classmethod
+  def _DeferRemoveExpiredAuthSessions(
+      cls, prefix, level, min_age_seconds, cursor=None):
+    deferred_name = '%s_auth_session_cleanup_%s' % (prefix, str(uuid.uuid1()))
+    deferred.defer(
+        cls._RemoveExpiredAuthSessions, prefix, level, min_age_seconds,
+        cursor, _name=deferred_name)
+
+  @classmethod
+  def _RemoveExpiredAuthSessions(cls, prefix, level, min_age_seconds, cursor):
+    """Expire all session data."""
     asd = gaeserver.AuthSessionSimianServer()
-    expired_sessions_count = asd.ExpireAll()
-    #logging.debug(
-    #    'AuthSessionCleanup: %d sessions expired.', expired_sessions_count)
+
+    query = asd.All(level=level, min_age_seconds=min_age_seconds, cursor=cursor)
+    sessions = query.fetch(settings.ENTITIES_PER_DEFERRED_TASK)
+
+    if not sessions:
+      return
+
+    # expire all certs that are over min expiration age.
+    for session in sessions:
+      if asd.IsExpired(session):
+        session.delete()
+
+    cls._DeferRemoveExpiredAuthSessions(
+        prefix, level, min_age_seconds, cursor=query.cursor())
+
+  def get(self):
+    """Handle GET."""
+    for lvl in gaeserver.ALL_LEVELS:
+      if lvl != gaeserver.LEVEL_APPLESUS:
+        self._DeferRemoveExpiredAuthSessions(
+            'token', lvl, auth_base.AGE_CN_SECONDS)
+
+    self._DeferRemoveExpiredAuthSessions(
+        'applesus', gaeserver.LEVEL_APPLESUS,
+        auth_base.AGE_APPLESUS_TOKEN_SECONDS)
 
 
 class MarkComputersInactive(webapp2.RequestHandler):
   """Class to mark all inactive hosts as such in Datastore."""
 
   def get(self):
-    """Handle GET."""
-    #logging.debug('Marking inactive computers....')
     count = models.Computer.MarkInactive()
-    #logging.debug('Complete! Marked %s inactive.' % count)
+    logging.info('Complete! Marked %s inactive.', count)
 
 
 class UpdateAverageInstallDurations(webapp2.RequestHandler):
@@ -74,8 +109,10 @@ class UpdateAverageInstallDurations(webapp2.RequestHandler):
         continue
 
       # Obtain a lock on the PackageInfo entity for this package, or skip.
-      lock = 'pkgsinfo_%s' % p.filename
-      if not gae_util.ObtainLock(lock, timeout=5.0):
+      lock = models.GetLockForPackage(p.filename)
+      try:
+        lock.Acquire(timeout=600, max_acquire_attempts=5)
+      except datastore_locks.AcquireLockError:
         continue  # Skip; it'll get updated next time around.
 
       # Append the avg duration text to the description; in the future the
@@ -89,8 +126,8 @@ class UpdateAverageInstallDurations(webapp2.RequestHandler):
           pkgs[p.munki_name]['duration_seconds_avg'])
       p.description = '%s\n\n%s' % (p.description, avg_duration_text)
       if p.plist['description'] != old_desc:
-        p.put()  # Only bother putting the entity if the description changed.
-      gae_util.ReleaseLock(lock)
+        p.put(avoid_mtime_update=True)
+      lock.Release()
 
     # Asyncronously regenerate all Catalogs to include updated pkginfo plists.
     delay = 0
@@ -104,38 +141,60 @@ class VerifyPackages(webapp2.RequestHandler):
 
   def get(self):
     """Handle GET."""
-    # Verify that all PackageInfo entities older than a week have a file in
-    # Blobstore.
+    self._NotifyAboutPkgInfosWithoutFile()
+    self._ScheduleRemovalOfOrphanedBlobs()
+
+  def _NotifyAboutPkgInfosWithoutFile(self):
+    """Verify that entities older than a week have a file in Blobstore."""
     for p in models.PackageInfo.all():
       if p.blobstore_key and blobstore.BlobInfo.get(p.blobstore_key):
         continue
       elif p.mtime < (datetime.datetime.utcnow() - datetime.timedelta(days=7)):
-
         subject = 'Package is lacking a file: %s' % p.filename
         body = (
             'The following package is lacking a DMG file: \n'
             'https://%s/admin/package/%s' % (
                 settings.SERVER_HOSTNAME, p.filename))
-        mail.SendMail([settings.EMAIL_ADMIN_LIST], subject, body)
+        mail.SendMail(settings.EMAIL_ADMIN_LIST, subject, body, defer=False)
 
-    # Verify all Blobstore Blobs have associated PackageInfo entities.
-    for b in blobstore.BlobInfo.all():
+  @classmethod
+  def _DoubleCheckAndRemove(cls, infos):
+    for blob_info in infos:
+      key = blob_info.key()
+      pkg = models.PackageInfo.all().filter('blobstore_key =', key).get()
+      if pkg:
+        continue
+      logging.info(
+          'deleting orphaned blob: %s %s', blob_info.filename, str(key))
+      blob_info.delete()
+
+  @classmethod
+  def _ScheduleRemovalOfOrphanedBlobs(cls, cursor=None):
+    query = blobstore.BlobInfo.all()
+    if cursor is not None:
+      query.with_cursor(cursor)
+    infos = query.fetch(settings.ENTITIES_PER_DEFERRED_TASK)
+
+    orphaned = []
+    for blob_info in infos:
       # Filter by blobstore_key as duplicate filenames are allowed in Blobstore.
-      key = b.key()
-      max_attempts = 5
-      for i in xrange(1, max_attempts + 1):
-        p = models.PackageInfo.all().filter('blobstore_key =', key).get()
-        if p:
-          break
-        elif i == max_attempts:
-          if not b.filename and not b.size:
-            b.delete()
-            break
-          subject = 'Orphaned Blob in Blobstore: %s' % b.filename
-          body = (
-              'An orphaned Blob exists in Blobstore. Use App Engine Admin '
-              'Console\'s "Blob Viewer" to locate and delete this Blob.\n\n'
-              'Filename: %s\nBlobstore Key: %s' % (b.filename, key))
-          mail.SendMail([settings.EMAIL_ADMIN_LIST], subject, body)
-          break
-        time.sleep(1)
+      key = blob_info.key()
+      pkg = models.PackageInfo.all().filter('blobstore_key =', key).get()
+      is_orphaned = pkg is None
+      if is_orphaned:
+        orphaned.append(blob_info)
+
+    if orphaned:
+      # Datastore is eventually consistent.
+      # related package info can be available later.
+      deferred_name = 'remove_orphaned_blobs_%s' % str(uuid.uuid1())
+      deferred.defer(
+          cls._DoubleCheckAndRemove, orphaned,
+          _name=deferred_name, _countdown=600)
+    if len(infos) == settings.ENTITIES_PER_DEFERRED_TASK:
+      deferred_name = 'find_orphaned_blobs_%s' % str(uuid.uuid1())
+      deferred.defer(
+          cls._ScheduleRemovalOfOrphanedBlobs, query.cursor(),
+          _name=deferred_name)
+
+

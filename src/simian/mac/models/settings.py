@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ SETTINGS = {
     'api_info_key': {
         'type': 'random_str',
         'title': 'API Info Key',
+        'comment': 'Consider updating API clients before changing value.',
     },
     'apple_auto_promote_enabled': {
         'type': 'bool',
@@ -56,11 +57,18 @@ SETTINGS = {
                     'testing to stable.'),
         'default': 7,
     },
+    'approval_required': {
+        'type': 'bool',
+    },
     'client_site_enabled': {
         'type': 'bool',
         'title': 'Display Client Site/Office',
         'comment': 'If enabled, data is displayed in Summary and Host reports.',
         'default': False,
+    },
+    'icons_gcs_bucket': {
+        'type': 'string',
+        'title': 'Dedicated Cloud Storage Bucket for icons',
     },
     'list_of_categories': {
         'type': 'string',

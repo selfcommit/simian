@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import datetime
 import httplib
 import json
 
-from google.appengine.api import memcache
 from google.appengine.api import users
 from google.appengine.ext import deferred
 
@@ -32,13 +31,7 @@ from simian.mac import models
 from simian.mac.common import applesus
 from simian.mac.common import auth
 from simian.mac.common import gae_util
-
-# pylint: disable=g-import-not-at-top
-try:
-  from simian.mac.common import mail
-except ImportError:
-  mail = None
-# pylint: enable=g-import-not-at-top
+from simian.mac.common import mail
 
 
 DEFAULT_APPLESUS_LOG_FETCH = 25
@@ -155,7 +148,7 @@ class AppleSUSAdmin(admin.AdminHandler):
     log.put()
 
     # Send email notification to admins
-    if mail and settings.EMAIL_ON_EVERY_CHANGE:
+    if settings.EMAIL_ON_EVERY_CHANGE:
       display_name = '%s - %s' % (product.name, product.version)
 
       subject = 'Apple SUS Update by %s - %s (%s)' % (
@@ -169,9 +162,7 @@ class AppleSUSAdmin(admin.AdminHandler):
     # Regenerate catalogs for any changed tracks, if a task isn't already
     # queued to do so.
     for track in changed_tracks:
-      if gae_util.ObtainLock(applesus.CATALOG_REGENERATION_LOCK_NAME % track):
-        deferred.defer(
-            applesus.GenerateAppleSUSCatalogs, track=track, delay=180)
+      deferred.defer(applesus.GenerateAppleSUSCatalogs, track=track, delay=180)
     # TODO(user): add a visual cue to UI so admins know a generation is pending.
 
     self.response.headers['Content-Type'] = 'application/json'
@@ -184,9 +175,10 @@ class AppleSUSAdmin(admin.AdminHandler):
   def get(self, report=None, product_id=None):
     """GET handler."""
     auth.DoUserAuth()
+
     if not report:
       self._DisplayMain()
-    if report == 'product':
+    elif report == 'product':
       self._DisplayProductDescription(product_id)
     elif report == 'logs':
       product_id = self.request.get('product_id')
@@ -217,9 +209,10 @@ class AppleSUSAdmin(admin.AdminHandler):
 
     catalogs_pending = {}
     for track in common.TRACKS:
-      lock_name = applesus.CATALOG_REGENERATION_LOCK_NAME % track
-      catalogs_pending[track] = memcache.get(
-          gae_util.LOCK_NAME % lock_name) is not None
+      catalogs_pending[track] = False
+      for os_version in applesus.OS_VERSIONS:
+        lock_name = applesus.CatalogRegenerationLockName(track, os_version)
+        catalogs_pending[track] |= gae_util.LockExists(lock_name)
 
     install_counts, counts_mtime = models.ReportsCache.GetInstallCounts()
     data = {

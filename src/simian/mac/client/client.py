@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -80,6 +80,10 @@ class BaseSimianClient(object):
 
 class SimianAuthClient(BaseSimianClient, client.SimianAuthClient):
   """Client perform authentication steps with Simian server."""
+
+  def __init__(self, uuid, **kwargs):
+    self.uuid = uuid
+    client.SimianAuthClient.__init__(self, root_ok=True, **kwargs)
 
   def _GetPuppetSslDetails(self, cert_fname=None, interactive_user=False):
     """Get Puppet SSL details.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,10 @@ from simian.auth import gaeserver
 from simian.mac.munki import handlers
 
 
+def CreateAuthTokenCookieStr(token):
+  return '%s=%s; secure; httponly;' % (auth.AUTH_TOKEN_COOKIE, token)
+
+
 class Auth(handlers.AuthenticationHandler):
   """Handler for /auth URL."""
 
@@ -42,7 +46,7 @@ class Auth(handlers.AuthenticationHandler):
       auth1 = gaeserver.AuthSimianServer()
       auth1.LoadCaParameters(settings, ca_id)
     except gaeserver.CaParametersError, e:
-      logging.critical('(ca_id = %s) %s' % (ca_id, str(e)))
+      logging.error('(ca_id = %s) %s' % (ca_id, str(e)))
       raise base.NotAuthenticated('CaParametersError')
     return auth1
 
@@ -97,17 +101,16 @@ class Auth(handlers.AuthenticationHandler):
 
     if auth_state == gaeserver.base.AuthState.OK:
       if output:
-        self.response.headers['Set-Cookie'] = '%s=%s; secure; httponly;' % (
-            auth.AUTH_TOKEN_COOKIE, output)
+        self.response.headers['Set-Cookie'] = CreateAuthTokenCookieStr(output)
         self.response.out.write(auth.AUTH_TOKEN_COOKIE)
       else:
-        logging.critical('Auth is OK but there is no output.')
+        logging.error('Auth is OK but there is no output.')
         raise base.NotAuthenticated('AuthOkOutputEmpty')
     elif auth_state == gaeserver.base.AuthState.FAIL:
       raise base.NotAuthenticated('AuthStateFail')
     elif output:
       self.response.out.write(output)
     else:
-      logging.critical('auth_state is %s but no output.', auth_state)
+      logging.error('auth_state is %s but no output.', auth_state)
       # technically 500, 403 for security
       raise base.NotAuthenticated('AuthStateUnknownOutputEmpty')

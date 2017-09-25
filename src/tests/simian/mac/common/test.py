@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,11 @@ Contents:
   RequestHandlerTest
 """
 
+import base64
+
 import tests.appenginesdk
 
+from google.appengine.ext import deferred
 from google.appengine.ext import testbed
 
 from google.apputils import basetest
@@ -34,6 +37,37 @@ from simian.mac.common import auth
 
 def GetArgFromCallHistory(mock_fn, call_index=0, arg_index=0):
   return mock_fn.call_args_list[call_index][0][arg_index]
+
+
+class AppengineTest(basetest.TestCase):
+
+  def setUp(self):
+    super(AppengineTest, self).setUp()
+
+    self.testbed = testbed.Testbed()
+
+    self.testbed.activate()
+    self.testbed.setup_env(
+        overwrite=True,
+        USER_EMAIL='user@example.com',
+        USER_ID='123',
+        USER_IS_ADMIN='0',
+        DEFAULT_VERSION_HOSTNAME='example.appspot.com')
+
+    self.testbed.init_all_stubs()
+
+  def tearDown(self):
+    super(AppengineTest, self).tearDown()
+    self.testbed.deactivate()
+
+  def RunAllDeferredTasks(self, queue_name='default'):
+    """Runs all deferred tasks in specified queue."""
+    taskqueue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
+
+    tasks = taskqueue.GetTasks(queue_name)
+    for task in tasks:
+      deferred.run(base64.b64decode(task['body']))
+      taskqueue.DeleteTask(queue_name, task['name'])
 
 
 class GenericContainer(test_base.GenericContainer):

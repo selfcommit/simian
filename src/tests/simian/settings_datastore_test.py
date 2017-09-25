@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,8 +23,6 @@ import types
 
 import tests.appenginesdk
 from google.appengine.ext import testbed
-from django.conf import settings
-settings.configure()
 
 from google.apputils import app
 from google.apputils import basetest
@@ -95,7 +93,7 @@ class DatastoreSettingsTest(basetest.TestCase):
     v, stamp = models.Settings.GetItem('long_name')
     self.assertEquals(value, v)
     self.assertGreater(
-        datetime.timedelta(seconds=1), datetime.datetime.now() - stamp)
+        datetime.timedelta(seconds=1), datetime.datetime.utcnow() - stamp)
 
   def testDir(self):
     models.Settings.SetItem('some_extra_long_kEy', 343423)

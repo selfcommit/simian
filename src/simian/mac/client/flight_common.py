@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ import ctypes.util
 import datetime
 import errno
 import fcntl
+import httplib
+import json
 import logging
 import os
 import platform
@@ -32,9 +34,8 @@ import struct
 import subprocess
 import tempfile
 import time
-import urllib
-import urlparse
 
+from simian.client import client as base_client  # pylint: disable=import-error
 from simian.mac.client import version
 
 # Place all ObjC-dependent imports in this try/except block.
@@ -54,7 +55,7 @@ except ImportError:
   OBJC_OK = False
 
 
-FACTER_CMD = '/usr/local/bin/simianfacter'
+FACTER_CMD = ['/usr/local/bin/simianfacter', '-j']
 DATETIME_STR_FORMAT = '%Y-%m-%d %H:%M:%S'
 DELIMITER = '|'
 APPLE_SUS_PLIST = '/Library/Preferences/com.apple.SoftwareUpdate.plist'
@@ -67,6 +68,7 @@ DEFAULT_ADDITIONAL_HTTP_HEADERS_KEY = 'AdditionalHttpHeaders'
 # Global for holding the auth token to be used to communicate with the server.
 AUTH1_TOKEN = None
 HUNG_MSU_TIMEOUT = datetime.timedelta(hours=2)
+MUNKI_CLIENT_ID_HEADER_KEY = 'X-munki-client-id'
 
 
 DEBUG = False
@@ -74,6 +76,9 @@ if DEBUG:
   logging.getLogger().setLevel(logging.DEBUG)
 else:
   logging.getLogger().setLevel(logging.INFO)
+
+
+_facts = {}
 
 
 class Error(Exception):
@@ -201,6 +206,7 @@ def Exec(cmd, env=None, timeout=0, waitfor=0):
     environ.update(env)
     env = environ
 
+  logging.debug('Executing: %s', cmd)
   p = subprocess.Popen(
       cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell)
 
@@ -325,6 +331,11 @@ def GetFacterFacts():
   Returns:
     dict, facter contents
   """
+  global _facts
+
+  if _facts:
+    return _facts
+
   return_code, stdout, unused_stderr = Exec(
       FACTER_CMD, timeout=300, waitfor=0.5)
   if return_code != 0:
@@ -332,14 +343,17 @@ def GetFacterFacts():
 
   # Iterate over the facter output and create a dictionary of the contents.
   facts = {}
-  for line in stdout.splitlines():
-    try:
-      key, unused_sep, value = line.split(' ', 2)
-      value = value.strip()
-      facts[key] = value
-    except ValueError:
-      logging.warning('Ignoring invalid facter output line: %s', line)
-  return facts
+
+  try:
+    json_facts = json.loads(stdout)
+    for k in json_facts:
+      facts[k] = json_facts[k]
+  except ValueError, e:
+    logging.error(
+        'There was a problem scanning facter JSON output. %s', str(e))
+
+  _facts = facts
+  return _facts
 
 
 def GetSystemUptime():
@@ -421,7 +435,7 @@ def GetClientIdentifier(runtype=None):
   simian_track = (facts.get('simiantrack', None))
 
   # Apple SUS integration.
-  applesus = facts.get('applesus', 'true').lower() == 'true'
+  applesus = facts.get('applesus', True)
 
   site = facts.get('site', None)
 
@@ -431,7 +445,7 @@ def GetClientIdentifier(runtype=None):
 
   # client_management_enabled facter support; defaults to enabled.
   mgmt_enabled = facts.get(
-      'client_management_enabled', 'true').lower() == 'true'
+      'client_management_enabled', True)
 
   # Determine if the computer is on the corp network or not.
   on_corp = None
@@ -530,32 +544,37 @@ def DictToStr(d, delimiter=DELIMITER):
   return delimiter.join(out).encode('utf-8')
 
 
-def GetAppleSUSCatalog():
+def _SetCustomCatalogURL(catalog_url):
+  """Sets Software Update's CatalogURL to custom value."""
+  key = 'SimianCatalogURL'
+  if munkicommon.pref(key) == catalog_url:
+    return
+  munkicommon.set_pref(key, catalog_url)
+
+  os_version_tuple = munkicommon.getOsVersion(as_tuple=True)
+  # set custom catalog url on each preflight for apple updates
+  if os_version_tuple >= (10, 11):
+    Exec(['/usr/sbin/softwareupdate', '--set-catalog', catalog_url])
+
+  Exec([
+      '/usr/bin/defaults', 'write', APPLE_SUS_PLIST, 'CatalogURL', catalog_url])
+
+
+def UpdateAppleSUSCatalog(client):
   """Fetches an Apple Software Update Service catalog from the server."""
+
   url = GetServerURL()
-  try:
-    new = updatecheck.getResourceIfChangedAtomically(
-        '%s/applesus/' % url, APPLE_SUS_CATALOG)
-  except fetch.MunkiDownloadError as e:
-    logging.exception(u'MunkiDownloadError getting Apple SUS catalog: %s', e)
-    return
 
-  if new:
-    # SUS catalog changed, clear last check date to run softwareupdate soon.
-    munkicommon.set_pref('LastAppleSoftwareUpdateCheck', None)
+  resp = client.Do(
+      'POST', '%s/applesus/' % url,
+      headers={MUNKI_CLIENT_ID_HEADER_KEY: DictToStr(GetClientIdentifier())})
 
-  try:
-    sus_catalog = fpl.readPlist(APPLE_SUS_PLIST)
-  except fpl.NSPropertyListSerializationException:
-    # plist may not exist, but will be created when softwareupdate is run, then
-    # the next execution of of this code will set the CatalogURL.
-    logging.exception('Failed to read Apple SoftwareUpdate plist.')
-    return
+  if resp.status != httplib.OK:
+    raise base_client.HTTPError
 
-  # Update the CatalogURL setting in com.apple.SoftwareUpdate.plist.
-  sus_catalog['CatalogURL'] = urlparse.urljoin(
-      'file://localhost/', urllib.quote(APPLE_SUS_CATALOG))
-  fpl.writePlist(sus_catalog, APPLE_SUS_PLIST)
+  applesus_url = '%s/applesus/%s' % (url, resp.body)
+
+  _SetCustomCatalogURL(applesus_url)
 
 
 def GetAuth1Token():
@@ -880,9 +899,16 @@ def RepairClient():
       'munkiclient.dmg')
   mount_path = tempfile.mkdtemp(prefix='munki_repair_client_', dir='/tmp')
 
+  if hasattr(fetch, 'MunkiDownloadError'):
+    # munki 2.8
+    DownloadError = fetch.MunkiDownloadError
+  else:
+    # munki 3.0.3
+    DownloadError = fetch.DownloadError
+
   try:
     updatecheck.getResourceIfChangedAtomically('%s/repair' % url, download_path)
-  except fetch.MunkiDownloadError as e:
+  except DownloadError as e:
     raise RepairClientError(
         u'MunkiDownloadError getting Munki client: %s' % e)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,6 +43,8 @@ GAE = False
 TESTING = False
 # True if running in unit testing environment and settings_test is under test.
 SETTINGS_TESTING = False
+
+ENTITIES_PER_DEFERRED_TASK = 1000
 
 if (os.environ.get('SERVER_SOFTWARE', '').startswith('Development') and
     'testbed' not in os.environ.get('SERVER_SOFTWARE', '')):

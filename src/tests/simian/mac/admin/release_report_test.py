@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,6 @@
 # limitations under the License.
 #
 
-from django.conf import settings
-settings.configure()
-from google.apputils import app
 from google.apputils import basetest
 
 from simian.mac.admin import release_report
@@ -36,9 +33,5 @@ class ReleaseReportModelTest(basetest.TestCase):
     self.assertEqual(None, release_report.GetOSXMajorVersion(None))
 
 
-def main(_):
-  basetest.main()
-
-
 if __name__ == '__main__':
-  app.run()
+  basetest.main()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,23 +16,13 @@
 #
 """util module tests."""
 
-import mox
-import stubout
 
 from google.apputils import app
 from google.apputils import basetest
 from simian.mac.common import util
 
 
-class UtilModuleTest(mox.MoxTestBase):
-
-  def setUp(self):
-    mox.MoxTestBase.setUp(self)
-    self.stubs = stubout.StubOutForTesting()
-
-  def tearDown(self):
-    self.mox.UnsetStubs()
-    self.stubs.UnsetAll()
+class UtilModuleTest(basetest.TestCase):
 
   def testSerializeNone(self):
     """Test Serialize()."""

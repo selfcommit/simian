@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ from simian import settings
 from simian.mac.munki.handlers import applesus
 from simian.mac.munki.handlers import auth
 from simian.mac.munki.handlers import catalogs
+from simian.mac.munki.handlers import icons
 from simian.mac.munki.handlers import manifests
 from simian.mac.munki.handlers import pkgs
 from simian.mac.munki.handlers import pkgsinfo
@@ -40,12 +41,13 @@ class RedirectToAdmin(webapp2.RequestHandler):
 app = webapp2.WSGIApplication([
     # GET Apple Software Update Service catalog with header client-id.
     (r'/applesus/?$', applesus.AppleSUS),
-    # GET/PUT Apple Software Update Service catalogs.
-    (r'/applesus/([\w\-\_\.\=\|\%]+)/?$', applesus.AppleSUS),
+    (r'/applesus/([^/]+)$', applesus.AppleSUS),
+    (r'/applesus/([^/]+)/([^/]+)?$', applesus.AppleSUS),
     # GET munki catalogs.
     (r'/catalogs/([\w\-\.]+)$', catalogs.Catalogs),
     # GET munki manifests.
     (r'/manifests/([\w\-\_\.\=\|\%]+)$', manifests.Manifests),
+    (r'/icons/([\w\-\_\.\=\|\%]+)$', icons.Icons),
     # GET munki packages.
     (r'/pkgs/([\w\-\. \%]+)$', pkgs.Packages),
     (r'/pkgs\-userauth/([\w\-\. \%]+)$', pkgs.Packages),  # forces user auth.

@@ -40,10 +40,10 @@ except ImportError:
 
 REQUIRE_BASE = [
     'setuptools>=18.2',
-    'pyasn1>=0.1.2',
+    'pyasn1==0.1.9',  # 0.2.2 break tests
     'tlslite==0.4.9',
-    'pyyaml>=3.10',
-    'requests',
+    'requests==2.14.2',
+    'GoogleAppEngineCloudStorageClient',
 ]
 
 REQUIRE_SETUP = REQUIRE_BASE + [
@@ -53,10 +53,10 @@ REQUIRE_SETUP = REQUIRE_BASE + [
 ]
 
 REQUIRE_TEST = REQUIRE_BASE + [
-    'django==1.6',
     'mock',
     'mox>=0.5.3',
     'Pillow',  # needed for google_apputils init_all_stubs() (for imging stub)
+    'pyyaml>=3.10',
     'pyfakefs',
     'unittest2',
     'webapp2',
@@ -74,7 +74,7 @@ SIMIAN_ENTRY_POINTS = ['%s = simian.stubs:%s' % s for s in SIMIAN_STUBS]
 
 setup(
   name = 'simian',
-  version = '2.4',
+  version = '2.5',
   url = 'https://github.com/google/simian',
   license = 'Apache 2.0',
   description = 'An App Engine-based client & server component for Munki',

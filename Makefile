@@ -3,15 +3,15 @@
 #
 
 OSX_VERSION=$(shell sw_vers -productVersion 2>/dev/null | cut -d. -f1-2)
-SIMIAN_VERSION=2.4
+SIMIAN_VERSION=2.5
 SIMIAN=simian-${SIMIAN_VERSION}
 SDIST_TAR=dist/simian-${SIMIAN_VERSION}.tar
 SDIST=${SDIST_TAR}.gz
-MUNKI_VERSION=2.5.1.2630
+MUNKI_VERSION=3.0.3.3352
 MUNKI=munkitools-${MUNKI_VERSION}
 MUNKIFILE=${MUNKI}.pkg
 PYTHON_VERSION=2.7
-PYTHON=$(shell type -p python${PYTHON_VERSION})
+PYTHON="/usr/bin/python${PYTHON_VERSION}"
 TS=$(shell date '+%s')
 BUILD_VERSION=$(shell (git rev-parse HEAD 2>/dev/null || echo ${SIMIAN_VERSION} | tr '.' '-') | cut -c1-12)
 
@@ -23,14 +23,21 @@ python_check:
 
 virtualenv: python_check
 	${PYTHON} -c 'import virtualenv; exit(virtualenv.__version__ != "13.1.2")' || \
-	(sudo easy_install-${PYTHON_VERSION} -U virtualenv==13.1.2 && \
-	sudo easy_install-${PYTHON_VERSION} -U setuptools==18.6.1)
+	(sudo /usr/bin/easy_install-${PYTHON_VERSION} -U virtualenv==13.1.2 && \
+	sudo /usr/bin/easy_install-${PYTHON_VERSION} -U setuptools==18.6.1)
 
 VE: virtualenv python_check
 	[ -d VE ] || \
 	${PYTHON} $(shell type -p virtualenv) --no-site-packages VE
 
-test: m2crypto VE
+src/tests/gae_server.zip:
+	rm -Rf tmp/gae_server
+	mkdir -p tmp/gae_server
+	curl -o tmp/master.zip https://codeload.github.com/GoogleCloudPlatform/python-compat-runtime/zip/739bf8f575afe68f4df0e446ed405aa767aa870d
+	unzip -q tmp/master.zip -d tmp/gae_server
+	cd tmp/gae_server/python-compat-runtime-*/appengine-compat/exported_appengine_sdk/ && zip -q -r ../../../../../src/tests/gae_server.zip *
+
+test: m2crypto VE src/tests/gae_server.zip
 	[ -f test ] || \
 	VE/bin/python VE/bin/easy_install-${PYTHON_VERSION} "${PWD}"/simian_M2Crypto-*-py${PYTHON_VERSION}-macosx-${OSX_VERSION}*.egg && \
 	env SIMIAN_CONFIG_PATH="${PWD}/etc/simian/" \
@@ -74,10 +81,10 @@ ${SDIST}: VE clean_sdist client_config
 server_config:
 	src/simian/util/create_gae_bundle.sh $(PWD)
 	sed -i "" "s/^application:.*/application: `PYTHONPATH=. python src/simian/util/appid_generator.py`/" gae_bundle/app.yaml
-	src/simian/util/link_module.sh PyYAML
 	src/simian/util/link_module.sh pytz
 	src/simian/util/link_module.sh tlslite
 	src/simian/util/link_module.sh pyasn1
+	src/simian/util/link_module.sh GoogleAppEngineCloudStorageClient
 	VE/bin/python src/simian/util/compile_js.py gae_bundle/simian/mac/admin/js/simian.js
 
 client_config: settings_check
@@ -118,7 +125,9 @@ m2crypto:
 	for egg in \
 	M2Crypto-0.22.3-py2.7-macosx-10.9-intel.egg \
 	M2Crypto-0.22.3-py2.7-macosx-10.10-intel.egg \
-	M2Crypto-0.22.3-py2.7-macosx-10.11-intel.egg ; do \
+	M2Crypto-0.22.3-py2.7-macosx-10.11-intel.egg \
+	M2Crypto-0.22.3-py2.7-macosx-10.12-intel.egg \
+	M2Crypto-0.22.3-py2.7-macosx-10.13-intel.egg ; do \
 	[[ -f "simian_$${egg}" ]] || curl -o "simian_$${egg}" "https://storage.googleapis.com/m2crypto_eggs/$${egg}" ; \
 	done
 
@@ -134,7 +143,8 @@ ${SIMIAN}.dmg: os_check ${SDIST} clean_contents contents.tar.gz m2crypto vep
 	-R simian_M2Crypto-*-10.9-*.egg \
 	-R simian_M2Crypto-*-10.10-*.egg \
 	-R simian_M2Crypto-*-10.11-*.egg \
-	-R .eggs/PyYAML-*.egg \
+	-R simian_M2Crypto-*-10.12-*.egg \
+	-R simian_M2Crypto-*-10.13-*.egg \
 	-R .eggs/WebOb-*.egg \
 	-R .eggs/google_apputils-*.egg \
 	-R .eggs/pyasn1-*.egg \
@@ -144,7 +154,7 @@ ${SIMIAN}.dmg: os_check ${SDIST} clean_contents contents.tar.gz m2crypto vep
 	-R .eggs/requests-*.egg \
 	-R .eggs/tlslite-*.egg \
 	-r ${SDIST} \
-	-s postflight \
+	-s postinstall \
 	-s preinstall \
 	-s roots.pem
 
@@ -160,7 +170,8 @@ ${SIMIAN}.pkg: os_check ${SDIST} clean_contents contents.tar.gz m2crypto vep
 	-R simian_M2Crypto-*-10.9-*.egg \
 	-R simian_M2Crypto-*-10.10-*.egg \
 	-R simian_M2Crypto-*-10.11-*.egg \
-	-R .eggs/PyYAML-*.egg \
+	-R simian_M2Crypto-*-10.12-*.egg \
+	-R simian_M2Crypto-*-10.13-*.egg \
 	-R .eggs/WebOb-*.egg \
 	-R .eggs/google_apputils-*.egg \
 	-R .eggs/pyasn1-*.egg \
@@ -170,7 +181,7 @@ ${SIMIAN}.pkg: os_check ${SDIST} clean_contents contents.tar.gz m2crypto vep
 	-R .eggs/requests-*.egg \
 	-R .eggs/tlslite-*.egg \
 	-r ${SDIST} \
-	-s postflight \
+	-s postinstall \
 	-s preinstall \
 	-s roots.pem
 
@@ -186,7 +197,8 @@ ${SIMIAN}-and-${MUNKI}.pkg: os_check ${SDIST} clean_contents m2crypto add_munkic
 	-R simian_M2Crypto-*-10.9-*.egg \
 	-R simian_M2Crypto-*-10.10-*.egg \
 	-R simian_M2Crypto-*-10.11-*.egg \
-	-R .eggs/PyYAML-*.egg \
+	-R simian_M2Crypto-*-10.12-*.egg \
+	-R simian_M2Crypto-*-10.13-*.egg \
 	-R .eggs/WebOb-*.egg \
 	-R .eggs/google_apputils-*.egg \
 	-R .eggs/pyasn1-*.egg \
@@ -196,7 +208,7 @@ ${SIMIAN}-and-${MUNKI}.pkg: os_check ${SDIST} clean_contents m2crypto add_munkic
 	-R .eggs/requests-*.egg \
 	-R .eggs/tlslite-*.egg \
 	-r ${SDIST} \
-	-s postflight \
+	-s postinstall \
 	-s preinstall \
 	-s roots.pem
 
@@ -210,7 +222,8 @@ ${SIMIAN}-and-${MUNKI}.dmg: os_check ${SDIST} clean_contents m2crypto add_munkic
 	-R simian_M2Crypto-*-10.9-*.egg \
 	-R simian_M2Crypto-*-10.10-*.egg \
 	-R simian_M2Crypto-*-10.11-*.egg \
-	-R .eggs/PyYAML-*.egg \
+	-R simian_M2Crypto-*-10.12-*.egg \
+	-R simian_M2Crypto-*-10.13-*.egg \
 	-R .eggs/WebOb-*.egg \
 	-R .eggs/google_apputils-*.egg \
 	-R .eggs/pyasn1-*.egg \
@@ -220,7 +233,7 @@ ${SIMIAN}-and-${MUNKI}.dmg: os_check ${SDIST} clean_contents m2crypto add_munkic
 	-R .eggs/requests-*.egg \
 	-R .eggs/tlslite-*.egg \
 	-r ${SDIST} \
-	-s postflight \
+	-s postinstall \
 	-s preinstall \
 	-s roots.pem
 

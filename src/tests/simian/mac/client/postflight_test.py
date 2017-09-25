@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,7 +69,9 @@ class PostflightTest(mox.MoxTestBase):
 
     postflight.flight_common.GetServerURL().AndReturn(mock_url)
     postflight.flight_common.GetAuth1Token().AndReturn('fake_auth')
+    postflight.flight_common.GetClientIdentifier('auto').AndReturn(client_id)
     postflight.mac_client.SimianAuthClient(
+        'abcd4077-0b34-4572-ba91-cc7aad032b5c',
         hostname=mock_url).AndReturn(mock_client)
     mock_client.SetAuthToken('fake_auth')
     postflight.flight_common.GetClientIdentifier('auto').AndReturn(client_id)

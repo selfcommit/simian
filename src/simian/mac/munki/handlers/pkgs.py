@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ class Packages(
       if blob_info:
         memcache.set(memcache_key, blob_info, 300)  # cache for 5 minutes.
       else:
-        logging.critical(
+        logging.error(
             'Failure fetching BlobInfo for %s. Verify the blob exists: %s',
             pkg.filename, pkg.blobstore_key)
         self.error(httplib.NOT_FOUND)
